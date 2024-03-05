@@ -1,0 +1,303 @@
+MODE7
+10INPUT "Drive 0/1", drive%
+IF drive%<0 OR drive%>1 THEN PRINT "Bad drive":GOTO 10
+
+OSBYTE=&FFF4
+@%=&509
+r01%=3:REM TODO - step rate from keyboard/option
+REM>Disc Initialiser
+REM>Initialise non-standard disc layouts
+max_sectors%=48: REM for 128 byte sectors plus a bit!
+max_bytes%=7000: REM 6250 for an MFM plus a bit
+max_preset%=20
+DIM sector_order%(max_sectors%)
+DIM sector_offsets%(max_sectors%)
+DIM track_buf% max_bytes%
+DIM preset$(max_preset%)
+DIM code% 300
+DIM block% 20
+PROCasm
+:
+PROCrestore_fmt:I%=0
+REPEAT:PROCread_nm:IF cur_fmt$<>""THENpreset$(I%)=cur_fmt$:PROCread_parms:I%=I%+1:UNTIL I%>=max_preset% OR cur_fmt$=""
+max_preset%=I%-1
+:
+PROCpick_preset
+:
+REPEAT
+CLS
+PROCcalc_interleave:PROCshow_interleave
+g4b%=FNtrack_bytes-FNtotal_bytes
+IFmfm%THENfill%=&4E ELSE fill%=&FF
+PRINT TAB(25,0);CHR$(130);cur_fmt$
+PROCdrawmap
+REPEAT:K%=INKEY(255):UNTILK%<>-1
+IF K%=ASC("F")THENPROCformat
+IF K%=ASC("I")THENPROCimage_write
+IF K%=ASC("E")THENPROCexamine
+UNTILFALSE
+:
+END
+:
+DEFPROCcalc_interleave:LOCAL I%,J%
+J%=-1:FOR I%=0 TO sectors%:sector_order%(I%)=-1:NEXT
+FORI%=sec1%TOsectors%-1+sec1%
+REPEATJ%=(J%+1)MODsectors%:UNTILsector_order%(J%)=-1
+sector_order%(J%)=I%:J%=J%+ileave%
+NEXTI%
+ENDPROC
+:
+DEFPROCshow_interleave:LOCALJ%,@%:@%=&204
+VDU132,157,131:PRINT"Sector interleave 1:";1+ileave%
+FORJ%=0TOsectors%-1:PRINT sector_order%(J%),;:NEXT:PRINT
+ENDPROC
+:
+DEFFNtotal_bytes:=FNtotal_idx+g1%+sectors%*FNtotal_sector
+DEFFNtotal_idx:IFidx%=0THEN=g4a%ELSEIFmfm%THEN=g4a%+s_idx%+c2%+1ELSE=g4a%+s_idx%+1
+DEFFNtotal_sector:=FNtotal_secid+FNtotal_data
+DEFFNtotal_secid:IFmfm%THEN=s_id%+a1_id%+7+g2%ELSE=s_id%+7+g2%
+DEFFNtotal_data:IFmfm%THEN=s_dat%+a1_dat%+1+FNsec_sz+2+g3%ELSE=s_dat%+1+FNsec_sz+2+g3%
+:
+DEFFNsec_sz:=128*2^ssz%
+:
+DEFFNtrack_bytes:IFmfm%THEN=50000/8ELSE=25000/8
+
+DEFPROCdrawmap
+PROCdrawmap_idx:PRINT
+VDU130:PRINT"";sectors%;" sectors (";FNtotal_sector;"*";sectors%;"=";FNtotal_sector*sectors%;")"
+PROCdrawmap_secid:PRINT:PROCdrawmap_data:PRINT:PROCdrawmap_g4b:PRINTTAB(12,20);"sides=";(1+ds%);",tracks=";tracks%;",f=";:IFmfm%THENPRINT"M";
+PRINT"FM":PRINTTAB(12,21);"sec.size=";FNsec_sz;",i-leave=1:";(ileave%+1):PRINTTAB(12,22);"formatted size=";FNsec_sz*sectors%*(1+ds%)*tracks%/1024;"k":ENDPROC
+:
+DEFPROCdrawmap_idx:LOCALF%:
+VDU130:PRINT "Index Field: (";FNtotal_idx;")"
+IFidx%THENF%=24ELSEF%=6
+IFmfm%THENF%=F%+3
+PROCtb
+IFidx%=0THENPROCdrawmap_idx_short:ENDPROC
+PROCb3(4,"G4a"):PROCb3(6,"Syn"):PROCb2(6):IFmfm%THENPRINT" IAM  ";ELSEPRINT"IAM";
+PROCb3(4," G1"):PROCb
+PROCb3(4,FNpad(g4a%,3)):PROCb3(6,FNpad(s_idx%,3)):PROCb2(6):IFmfm%THENPRINTFNpad(c2%,3);
+PRINT"  1";:PROCb3(4,FNpad(g1%,3)):PROCb
+PROCb3(4,FNpadh(fill%,3)):PROCb3(6," 00"):PROCb2(1):IFmfm%THENPRINT" c2";
+PRINT" FC";:PROCb3(4,FNpadh(fill%,3)):PROCb
+PROCbb:ENDPROC
+DEFPROCdrawmap_idx_short
+PROCb3(4,"G4a"):PROCb
+PROCb3(4,FNpad(g4a%,3)):PROCb
+PROCb3(4,FNpadh(fill%,3)):PROCb
+PROCbb:ENDPROC
+:
+DEFPROCdrawmap_secid:LOCALF%:IFmfm%THENF%=35ELSEF%=32
+VDU130:PRINT" Sector ID (";FNtotal_secid;")":PROCtb
+PROCb3(6,"Syn"):PROCb2(6):IFmfm%THENPRINT" IDM  ";ELSEPRINT"IDM";
+VDU147,234:PRINT "CjSjSjL";:VDU234,135:PRINT"CRC";:PROCb3(4," G2"):PROCb
+PROCb3(6,FNpad(s_id%,3)):PROCb2(6):IFmfm%THENPRINTFNpad(a1_id%,3);
+PRINT"  1";:VDU147,234:PRINT"YjIjEjE";:VDU234,135:PRINT"  2";:PROCb3(4,FNpad(g2%,3)):PROCb
+PROCb3(6," 00"):PROCb2(1):IFmfm%THENPRINT" a1";
+PRINT" FC";:VDU147,234:PRINT"LjDjCjN";:VDU234,135:PRINT"  ?";:PROCb3(4,FNpadh(fill%,3)):PROCb
+PROCbb:ENDPROC
+:
+DEFPROCdrawmap_data:LOCALF%:IFmfm%THENF%=34ELSEF%=31
+VDU130:PRINT" Data field (";FNtotal_data;")":PROCtb
+PROCb3(6,"Syn"):PROCb2(6):IFmfm%THENPRINT" DAM  ";ELSEPRINT"DAM";
+PROCb3(3,"DATA"):PROCb3(7,"CRC"):PROCb3(4," G3"):PROCb
+PROCb3(6,FNpad(s_dat%,3)):PROCb2(6):IFmfm%THENPRINTFNpad(a1_dat%,3);
+PRINT"  1";:PROCb3(3," "+FNpad(FNsec_sz,3)):PROCb3(7,"  2"):PROCb3(4,FNpad(g3%,3)):PROCb
+PROCb3(6," 00"):PROCb2(1):IFmfm%THENPRINT" a1";
+PRINT" FB";:PROCb3(3,"  ? "):PROCb3(7,"  ?"):PROCb3(4,FNpadh(fill%,3)):PROCb
+PROCbb:ENDPROC
+:
+DEFPROCdrawmap_g4b:LOCALF%:F%=8
+VDU130:PRINT" End of Track Gap":PROCtb
+PROCb3(4,"  G4b"):PROCb
+PROCb0:IF g4b%<0THENVDU129ELSEIFg4b%<FNtrack_bytes*3/100THENVDU131ELSEVDU132
+PRINTFNpad(g4b%,5);:PROCb
+PROCb3(4,"   FE"):PROCb
+PROCbb:ENDPROC
+DEFPROCe:VDU135:ENDPROC
+DEFPROCb:PROCb0:PROCe:PRINT:ENDPROC
+DEFPROCb0:VDU147,234:ENDPROC
+DEFPROCb2(C%):PROCb0:VDU128+C%:ENDPROC
+DEFPROCb3(C%,T$):PROCb2(C%):PRINTT$;:ENDPROC
+DEFPROCtb:VDU147,224:PRINTFNrpt(CHR$(240),F%);:PROCe:PRINT:ENDPROC
+DEFPROCbb:VDU147,162:PRINTFNrpt(CHR$(163),F%);:PROCe:ENDPROC
+DEFFNpad(X%,N%):LOCAL A$:A$=STR$(X%):IF LEN(A$)<N% THEN=FNrpt(" ",N%-LEN(A$))+A$ELSE=A$
+DEFFNpadh(X%,N%):LOCAL A$:A$=STR$~(X%):IF LEN(A$)<N% THEN=FNrpt(" ",N%-LEN(A$))+A$ELSE=A$
+DEFFNrpt(C$,N%):LOCALR$:FOR I%=1TON%:R$=R$+C$:NEXT:=R$
+:
+DEFPROCformat
+side%=0:REM TODO:promptA/B/0/1/2/3/4/5
+PRINTTAB(0,24);:PRINT:PRINT"Formatting:"
+VDU 131,45,135:PRINT"building track data";:PROCbuild_track:PROCd
+VDU 131,45,135:PRINT"seek track 0";:PROCfdc_rstseek0:PROCd
+FORT%=0TOtracks%-1
+IFT%<>0THENPROCfdc_exec_stepin
+FORS%=0TOds%
+PROCfdc_ctl_s(FNfdc_ctl(drive%,side%+S%)):FOR R%=0TOsectors%-1:A%=sector_offsets%(R%)+track_buf%:A%?0=T%:A%?1=side%+S%:NEXTR%
+PRINT T%, S%;
+CALLNMI_claim:?&D00=&4C:?&D01=NMI_form:?&D02=NMI_form DIV256:NMI_LDA?1=track_buf%:NMI_LDA?2=track_buf%DIV256:PROCfdc_exec(&F4):?&D00=&40:CALLNMI_rel:PROCstatus_check(&44)
+PROCd
+NEXTS%
+NEXTT%
+T%=INKEY(20000)
+ENDPROC
+:
+DEFPROCimage_write:LOCAL F%,F$
+PRINT:PRINT
+INPUT"FILENAME",F$:F%=OPENINF$:IFF%=0THENPRINT"FILE NOT FOUND":STOP
+side%=0:REM TODO:promptA/B/0/1/2/3/4/5
+PRINTTAB(0,24);:PRINT:PRINT"Writing:"
+VDU 131,45,135:PRINT"seek track 0";:PROCfdc_rstseek0:PROCd
+FORT%=0TOtracks%-1
+IFT%<>0THENPROCfdc_exec_stepin
+FORS%=0TOds%
+PROCgbpb(4,F%,track_buf%,FNsec_sz*sectors%,0)
+AA%=track_buf%
+PRINT " - ";T%;":";S%;
+PROCfdc_ctl_s(FNfdc_ctl(drive%,side%+S%))
+FORR%=sec1%TOsectors%-1+sec1%
+?&FE86=R%:PRINT FNpad(R%,3);:VDU8,8,8
+CALLNMI_claim:?&D00=&4C:?&D01=NMI_form:?&D02=NMI_form DIV256:NMI_LDA?1=AA%:NMI_LDA?2=AA%DIV256:
+PROCfdc_exec(&A4):?&D00=&40:CALLNMI_rel:PROCstatus_check(&7C)
+AA%=AA%+FNsec_sz
+NEXTR%
+PROCd
+NEXTS%
+NEXTT%
+CLOSE#F%
+T%=INKEY(20000)
+ENDPROC
+:
+DEFPROCgbpb(A%,chn%,addr%,num%,ptr%):LOCALX%,Y%:X%=block%:Y%=X%DIV256
+?X%=chn%:X%!1=addr%:X%!5=num%:X%!9=ptr%:CALL&FFD1:ENDPROC
+:
+DEFPROCd:PRINT"...";CHR$(130);"done":ENDPROC
+:
+DEFPROCfdc_rstseek0:PROCfdc_ctl_s(&0):PROCfdc_ctl_s(FNfdc_ctl(drive%,side%)):PROCfdc_exec_restore:ENDPROC
+
+DEFFNfdc_ctl(D%,S%):LOCALV%:IFmfm%=0THENV%=8
+IFD%AND1THENV%=V%+2ELSEV%=V%+1
+IFS%AND1THENV%=V%+4
+=V%OR&20
+DEFPROCfdc_ctl_s(V%):?&FE80=V%:ENDPROC
+DEFPROCfdc_exec(A%):STATUS%=USR(fdc_exec)AND&FF:ENDPROC
+DEFPROCfdc_exec_restore:PROCfdc_exec(&00+r01%):PROCstatus_check(&10):ENDPROC
+DEFPROCfdc_exec_stepin:PROCfdc_exec(&50+r01%):PROCstatus_check(&10):ENDPROC
+DEFPROCfdc_seek(T%):?&FE87=T%:PROCfdc_exec(&14+r01%):PROCstatus_check(&18):ENDPROC
+DEFPROCstatus_check(M%):IF STATUS% AND M%THENPRINT:PRINT:PRINT"Disc error ";~(STATUS%ANDM%):STOP
+ENDPROC
+:
+DEFPROCbuild_track:LOCAL S%,O%
+O%=0
+PROCbuild_idx
+FORS%=0TOsectors%-1
+ PRINT".";
+ PROCbuildN(s_id%,0)
+ IFmfm%THENPROCbuildN(a1_id%,&F5)
+ PROCbuildN(1,&FE)
+ sector_offsets%(S%)=O%
+ PROCbuildN(2,&0):PROCbuildN(1,sector_order%(S%)):PROCbuildN(1,ssz%):PROCbuildN(1,&F7):PROCbuildN(g2%,fill%)
+ :
+ PROCbuildN(s_dat%,0)
+ IFmfm%THENPROCbuildN(a1_dat%,&F5)
+ PROCbuildN(1,&FB)
+ PROCbuildN(FNsec_sz,&47):PROCbuildN(1,&F7):PROCbuildN(g3%,fill%)
+NEXTS%
+PROCbuildN(max_bytes%-O%,fill%)
+ENDPROC
+:
+DEFPROCbuild_idx
+PROCbuildN(g4a%,fill%)
+IFidx%=0THENENDPROC
+PROCbuildN(s_idx%,0)
+IFmfm%THENPROCbuildN(c2%,&F6)
+PROCbuildN(1,&FC)
+PROCbuildN(g1%,fill%)
+ENDPROC
+:
+DEFPROCexamine:LOCAL C%,H%,S%,A%,R%,J%,A%
+CLS
+INPUT "C,H,S",C%,H%,S%
+side%=H%
+PROCfdc_rstseek0
+PROCfdc_seek(C%)
+?&FE86=S%
+CALLNMI_claim:?&D00=&4C:?&D01=NMI_read:?&D02=NMI_read DIV256:NMI_STA?1=track_buf%:NMI_STA?2=track_buf%DIV256:
+PROCfdc_exec(&84):?&D00=&40:CALLNMI_rel:PROCstatus_check(&1C)
+A%=track_buf%
+FORR%=0 TO 31:PRINT FNpadh(R%*8,2);":";
+PRINT " ";
+FORJ%=0 TO 7:PRINT FNpadh(A%?J%,2);" ";:NEXT
+FORJ%=0 TO 7:C%=A%?J%:IF C%>=32 AND C%<=126THENVDUC%ELSEPRINT".";
+NEXTJ%
+A%=A%+8:PRINT
+NEXTR%
+REPEAT:UNTILINKEY(100)<>-1
+ENDPROC
+:
+DEFPROCbuildN(N%,C%):LOCALI%,A%:A%=track_buf%+O%:CALLfill:O%=O%+N%:ENDPROC
+:
+DEFPROCasm:LOCAL P%,I%
+FOR I%=0TO3STEP3:P%=code%:[OPTI%
+.fill\N% bytes at A%, with C%
+LDA&404:STA&80:LDA&405:STA&81:LDA&438:STA&82:LDA&439:STA&83:LDA&40C
+LDY#0:
+.lp2562:DEC&83:BMIsk1
+.lp256:STA(&80),Y:INY:BNElp256:INC&81:JMPlp2562
+.sk1:LDX&82:BEQsk2
+.lp1:STA(&80),Y:INY:DEX:BNElp1
+.sk2:RTS
+RTS
+.oldNMI:EQUB0
+.fdc_exec:STA&FE84
+ .elp0:LDA&FE84:ROR A:BCCelp0
+ .elp1:LDA&FE84:ROR A:BCSelp1
+ ROL A:RTS
+.NMI_claim:LDA#&8F:LDX#&C:LDY#&FF:JSROSBYTE:STYoldNMI:RTS
+.NMI_rel:LDA#&8F:LDX#&B:LDYoldNMI:JMPOSBYTE
+.NMI_form:PHA:LDA&FE84:AND#&47:CMP#3:BNEsk_form
+.NMI_LDA:LDA&1234:STA&FE87
+INC NMI_LDA+1
+BNEsk_form
+INC NMI_LDA+2
+.sk_form:PLA:RTI
+.NMI_read:PHA:LDA&FE84:AND#&47:CMP#3:BNEsk_form
+LDA&FE87:.NMI_STA:STA&1234
+INC NMI_STA+1
+BNEsk_form
+INC NMI_STA+2
+.sk_form:PLA:RTI
+]:NEXT:IF P%>code%+200THEN
+ENDPROC
+DEFPROCpick_preset:LOCAL K%
+CLS:PRINT"Pick preset...":FOR I%=0TOmax_preset%:VDU 65+I%:PRINT ") ";preset$(I%):NEXT
+VDU65+I%:PRINT") EXIT"
+REPEAT:K%=INKEY(255):UNTIL K%>=65ANDK%<=65+max_preset%+1
+IFK%<=65+max_preset%THENPROCread_fmt(K%-65)
+ENDPROC
+DEFPROCrestore_fmt:RESTORE10000:ENDPROC
+DEFPROCread_fmt(I%):PROCrestore_fmt
+REPEAT
+ PROCread_nm
+ PROCread_parms
+ I%=I%-1
+UNTIL I%<0:ENDPROC
+DEFPROCread_nm:READ cur_fmt$:ENDPROC
+DEFPROCread_parms
+READ mfm%,sec1%,ileave%,sectors%,ssz%,ds%,tracks%
+READ idx%,g4a%,s_idx%,c2%,g1%:REM index field geometry (note ADFS has no index field!), gap1 is always placed even if no index field (i.e. ADFS)
+READ s_id%,a1_id%,g2%:REM sector id field params
+READ s_dat%,a1_dat%,g3%:REM data field params
+ENDPROC
+REM todo - sector index start
+REM todo - sector skew
+REM mfm,ileave-1,sectors,secsz,ds,tracks,IDX,g4a,s_idx,c2,g1,s_id,a_id,g2,s_dat,a1_dat,g3
+10000DATA"DOS 720k"     ,1,1,0,9 ,2,1,80,1,80,12,3,50,12,3,22,12,3,80
+10010DATA"DOS 360k"     ,1,1,0,9 ,2,1,40,1,80,12,3,50,12,3,22,12,3,80
+10020DATA"DOS 180k"     ,1,1,0,9 ,2,0,40,1,80,12,3,50,12,3,22,12,3,80
+10025DATA"DOS 160k"     ,1,1,0,8 ,2,0,40,1,80,12,3,50,12,3,22,12,3,80
+10030DATA"Acorn DFS 80T",0,0,0,10,1,0,80,0,40, 6,3, 0, 6,3,11,6 ,3,10
+10040DATA"Atari 400K",   1,1,0,10,2,0,80,0,60,12,3,20,12,3,22,12,3,40
+10050DATA"Atari 800K",   1,1,0,10,2,1,80,0,60,12,3,20,12,3,22,12,3,40
+10051DATA"Atari 810K",   1,1,0,10,2,1,81,0,60,12,3,20,12,3,22,12,3,40
+10060DATA""
